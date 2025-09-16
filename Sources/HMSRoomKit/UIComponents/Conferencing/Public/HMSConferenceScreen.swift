@@ -6,22 +6,22 @@
 //  Copyright © 2023 100ms. All rights reserved.
 //
 
-import SwiftUI
-import HMSSDK
 import HMSRoomModels
+import HMSSDK
+import SwiftUI
 
 public struct HMSConferenceScreen: View {
-    
+
     let userName: String?
-    
+
     @Environment(\.conferenceParams) var conferenceComponentParam
-    
+
     @EnvironmentObject var roomModel: HMSRoomModel
     @EnvironmentObject var currentTheme: HMSUITheme
     @EnvironmentObject var roomKitModel: HMSRoomNotificationModel
-    
+
     let isDefaultType: Bool
-    
+
     let type: InternalType
     public init(userName: String? = nil) {
         isDefaultType = true
@@ -33,7 +33,7 @@ public struct HMSConferenceScreen: View {
         self.type = type.process()
         self.userName = userName
     }
-    public init(userName: String? = nil, _ type: ()->`Type`) {
+    public init(userName: String? = nil, _ type: () -> `Type`) {
         isDefaultType = false
         let theType = type()
         self.type = theType.process()
@@ -45,20 +45,24 @@ public struct HMSConferenceScreen: View {
         self.type = theType.process()
         self.userName = userName
     }
-    
+
     @State var isPermissionDenialScreenPresented = false
-    
+
     public var body: some View {
-        
+
         Group {
             switch type {
             case .default(let conferenceParams):
                 HMSDefaultConferenceScreen(isHLSViewer: false)
-                    .environment(\.conferenceParams, isDefaultType ? conferenceComponentParam : conferenceParams)
-                
+                    .environment(
+                        \.conferenceParams,
+                        isDefaultType ? conferenceComponentParam : conferenceParams)
+
             case .liveStreaming(let conferenceParams):
                 HMSDefaultConferenceScreen(isHLSViewer: true)
-                    .environment(\.conferenceParams, isDefaultType ? conferenceComponentParam : conferenceParams)
+                    .environment(
+                        \.conferenceParams,
+                        isDefaultType ? conferenceComponentParam : conferenceParams)
             }
         }
         .checkAccessibility(interval: 1, denial: $isPermissionDenialScreenPresented)
@@ -66,15 +70,32 @@ public struct HMSConferenceScreen: View {
             HMSPermissionDenialScreen()
         }
         .environmentObject(roomKitModel)
-        .onAppear() {
-            
+        .onAppear {
+
             guard !roomModel.isUserJoined else { return }
-            
-            Task {
-                if let userName = userName {
-                    roomModel.userName = userName
+
+            if let gate = HMSPrebuiltConfig.joinGateNotificationName, !gate.isEmpty {
+                // Defer until gate is posted
+                _ = NotificationCenter.default.addObserver(
+                    forName: Notification.Name(gate),
+                    object: nil,
+                    queue: .main
+                ) { _ in
+                    HMSPrebuiltConfig.joinGateNotificationName = nil
+                    Task {
+                        if let userName = userName {
+                            roomModel.userName = userName
+                        }
+                        try await roomModel.joinSession()
+                    }
                 }
-                try await roomModel.joinSession()
+            } else {
+                Task {
+                    if let userName = userName {
+                        roomModel.userName = userName
+                    }
+                    try await roomModel.joinSession()
+                }
             }
         }
     }
@@ -82,13 +103,21 @@ public struct HMSConferenceScreen: View {
 
 struct HMSConferenceScreen_Previews: PreviewProvider {
     static var previews: some View {
-#if Preview
-        HMSConferenceScreen(.default())
-            .environmentObject(HMSUITheme())
-            .environmentObject(HMSRoomModel.dummyRoom(2, [.prominent, .prominent]))
-            .environmentObject(HMSRoomNotificationModel())
-            .environmentObject(HMSRoomInfoModel())
-            .environment(\.conferenceParams, .init(chat: .init(initialState: .open, isOverlay: true, allowsPinningMessages: true), tileLayout: .init(grid: .init(isLocalTileInsetEnabled: true, prominentRoles: ["stage"], canSpotlightParticipant: true)), isHandRaiseEnabled: true))
-#endif
+        #if Preview
+            HMSConferenceScreen(.default())
+                .environmentObject(HMSUITheme())
+                .environmentObject(HMSRoomModel.dummyRoom(2, [.prominent, .prominent]))
+                .environmentObject(HMSRoomNotificationModel())
+                .environmentObject(HMSRoomInfoModel())
+                .environment(
+                    \.conferenceParams,
+                    .init(
+                        chat: .init(
+                            initialState: .open, isOverlay: true, allowsPinningMessages: true),
+                        tileLayout: .init(
+                            grid: .init(
+                                isLocalTileInsetEnabled: true, prominentRoles: ["stage"],
+                                canSpotlightParticipant: true)), isHandRaiseEnabled: true))
+        #endif
     }
 }
